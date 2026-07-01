@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TVC Tuner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff; --good: #3fb950; --warn: #d29922;
+    --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 14px 22px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  header h1 { margin: 0; font-size: 19px; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  main { padding: 18px 22px; max-width: 1500px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .panel h2 {
+    margin: 0 0 10px; font-size: 13px; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--accent);
+  }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 8px 0 2px; }
+  input, select {
+    width: 100%; background: #0d1117; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+    font-size: 13px;
+  }
+  input:focus, select:focus { outline: 1px solid var(--accent); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 12px; }
+  button {
+    background: #21262d; color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #1f6feb; border-color: #1f6feb; }
+  button.primary:hover { background: #388bfd; }
+  button.danger { background: #b62324; border-color: #b62324; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th, td { padding: 2px 4px; }
+  th { color: var(--muted); font-size: 11px; text-align: left; font-weight: 500; }
+  td input { padding: 4px 6px; font-size: 12px; }
+  td .del { padding: 3px 8px; font-size: 12px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; }
+  .metric { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+  .metric .v { font-size: 17px; font-weight: 600; }
+  .metric .k { font-size: 11px; color: var(--muted); }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+  @media (max-width: 1000px) { .charts { grid-template-columns: 1fr; } }
+  .chartbox { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px; height: 320px; }
+  #console {
+    background: #010409; border: 1px solid var(--border); border-radius: 8px;
+    margin-top: 14px; padding: 12px; height: 220px; overflow-y: auto;
+    font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    white-space: pre-wrap; color: #7ee787;
+  }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .ok { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .checkline { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+  .checkline input { width: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TVC Tuner</h1>
+  <span class="sub">simulate your rocket &rarr; tune PID &rarr; write config.h &rarr; upload to the Teensy</span>
+  <span class="sub" id="cliStatus"></span>
+</header>
+<main>
+  <div class="grid">
+
+    <div class="panel">
+      <h2>Rocket mass &amp; geometry</h2>
+      <label>Mass input mode</label>
+      <select id="mass_mode" onchange="toggleMassMode()">
+        <option value="simple">Simple (totals)</option>
+        <option value="detailed">Detailed (component table)</option>
+      </select>
+
+      <div id="simpleMass">
+        <div class="row">
+          <div><label>Total liftoff mass (g)</label><input id="total_mass_g" type="number" value="800"></div>
+          <div><label>Rocket length (cm)</label><input id="rocket_length_cm" type="number" value="60"></div>
+        </div>
+        <div class="row">
+          <div><label>Center of mass above nozzle (cm)</label><input id="cm_from_nozzle_cm" type="number" value="30"></div>
+          <div><label>Pitch inertia (g&middot;cm&sup2;, blank = auto)</label><input id="inertia_gcm2" type="number" placeholder="auto: rod estimate"></div>
+        </div>
+      </div>
+
+      <div id="detailedMass" style="display:none">
+        <table id="compTable">
+          <thead><tr><th>Component</th><th>Mass g</th><th>CM pos cm&#42;</th><th>Len cm</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="btnrow"><button onclick="addComp()">+ Add component</button></div>
+        <div class="hint">&#42;position of the component's own CM, measured up from the nozzle. Items with a length are treated as rods (m&middot;l&sup2;/12).</div>
+        <div class="hint" id="massSummary"></div>
+      </div>
+
+      <div class="row">
+        <div><label>Body diameter (cm)</label><input id="body_diameter_cm" type="number" value="7.5" step="0.1"></div>
+        <div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Motor</h2>
+      <label>Preset</label>
+      <select id="motorPreset" onchange="applyMotor()">
+        <option value="custom">Custom</option>
+        <option value="C6">Estes C6 (~4.7 N, 1.85 s)</option>
+        <option value="D12">Estes D12 (~10.2 N, 1.65 s)</option>
+        <option value="E12">Estes E12 (~11.6 N, 2.40 s)</option>
+        <option value="F15" selected>Estes F15 (~14.4 N, 3.45 s)</option>
+      </select>
+      <div class="row3">
+        <div><label>Avg thrust (N)</label><input id="thrust_n" type="number" value="14.4" step="0.1"></div>
+        <div><label>Burn time (s)</label><input id="burn_s" type="number" value="3.45" step="0.05"></div>
+        <div><label>Propellant (g)</label><input id="prop_mass_g" type="number" value="60"></div>
+      </div>
+      <div class="hint">Preset numbers are averages — check your motor's data sheet.</div>
+
+      <h2 style="margin-top:16px">TVC mount &amp; servos</h2>
+      <div class="row">
+        <div><label>Max gimbal (deg)</label><input id="gimbal_limit_deg" type="number" value="5" step="0.5"></div>
+        <div><label>Servo:nozzle gear ratio</label><input id="gear_ratio" type="number" value="4" step="0.1"></div>
+      </div>
+      <div class="row">
+        <div><label>Servo speed (s per 60&deg;)</label><input id="servo_speed_s_per_60deg" type="number" value="0.12" step="0.01"></div>
+        <div><label>Servo latency (ms)</label><input id="servo_latency_ms" type="number" value="20"></div>
+      </div>
+      <div class="hint">Torque lever arm = CM height above the nozzle pivot (from the mass panel).</div>
+    </div>
+
+    <div class="panel">
+      <h2>Controller (mirrors the firmware)</h2>
+      <div class="row3">
+        <div><label>Kp</label><input id="kp" type="number" value="0.30" step="0.01"></div>
+        <div><label>Ki</label><input id="ki" type="number" value="0.10" step="0.01"></div>
+        <div><label>Kd</label><input id="kd" type="number" value="0.11" step="0.01"></div>
+      </div>
+      <div class="row3">
+        <div><label>I clamp (deg)</label><input id="i_limit" type="number" value="3" step="0.5"></div>
+        <div><label>D-term LPF (Hz)</label><input id="dterm_lpf_hz" type="number" value="30"></div>
+        <div><label>Nozzle rate lim (deg/s)</label><input id="nozzle_rate_limit_dps" type="number" value="300"></div>
+      </div>
+      <div class="row">
+        <div><label>TVC enable delay (ms)</label><input id="tvc_delay_ms" type="number" value="150"></div>
+        <div><label>Loop rate (Hz)</label><input id="control_rate_hz" type="number" value="250" disabled></div>
+      </div>
+      <div class="row3" style="margin-top:6px">
+        <div><label>Target bandwidth (Hz)</label><input id="target_bw_hz" type="number" value="0.8" step="0.1"></div>
+        <div><label>Target damping &zeta;</label><input id="target_zeta" type="number" value="0.9" step="0.05"></div>
+        <div style="display:flex;align-items:flex-end"><button style="width:100%" onclick="suggest()">Suggest gains</button></div>
+      </div>
+      <div class="hint" id="suggestNote"></div>
+
+      <h2 style="margin-top:16px">Disturbances</h2>
+      <div class="row">
+        <div><label>Initial tilt (deg)</label><input id="init_tilt_deg" type="number" value="3" step="0.5"></div>
+        <div><label>Initial rate (deg/s)</label><input id="init_rate_dps" type="number" value="0"></div>
+      </div>
+      <div class="row">
+        <div><label>Thrust misalignment (deg)</label><input id="misalign_deg" type="number" value="1" step="0.25"></div>
+        <div><label>Wind (m/s)</label><input id="wind_ms" type="number" value="2"></div>
+      </div>
+      <div class="checkline">
+        <input id="aero_enabled" type="checkbox" checked> Aerodynamic moment
+      </div>
+      <div class="row3">
+        <div><label>CP above nozzle (cm)</label><input id="cp_from_nozzle_cm" type="number" value="38"></div>
+        <div><label>CN&alpha;</label><input id="cna" type="number" value="2.0" step="0.1"></div>
+        <div><label>Cd (drag)</label><input id="cd" type="number" value="0.6" step="0.05"></div>
+      </div>
+      <div class="hint">CP above CM = aerodynamically unstable (typical for a finless TVC rocket) — that's what the TVC must fight.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Actions</h2>
+      <div class="btnrow">
+        <button class="primary" onclick="runSim()">&#9654; Run simulation</button>
+        <button onclick="applyConfig()">Write gains &rarr; config.h</button>
+      </div>
+      <div class="btnrow">
+        <button onclick="build(false)">Compile only</button>
+        <button class="primary" onclick="build(true)">&#8679; Compile &amp; upload to rocket</button>
+      </div>
+      <label style="margin-top:12px">Serial port (for live tuning)</label>
+      <div style="display:flex;gap:8px">
+        <select id="portSel" style="flex:1"></select>
+        <button onclick="refreshPorts()">&#8635;</button>
+      </div>
+      <div class="btnrow">
+        <button onclick="sendLive()">Send gains live over serial</button>
+      </div>
+      <div class="checkline">
+        <input id="persistLive" type="checkbox" checked> also <code>save</code> to EEPROM
+      </div>
+      <div class="hint">Live tuning only works while the board is in IDLE state (not armed).</div>
+
+      <h2 style="margin-top:16px">Results</h2>
+      <div class="metrics" id="metrics"></div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chartbox"><canvas id="chartTilt"></canvas></div>
+    <div class="chartbox"><canvas id="chartTraj"></canvas></div>
+  </div>
+
+  <div id="console">TVC Tuner ready.
+Set up your rocket's parameters, then Run simulation. "Suggest gains" computes
+PID gains from the physics (pole placement) as a starting point.</div>
+</main>
+
+<script>
+const MOTORS = {
+  C6:  { thrust: 4.7,  burn: 1.85, prop: 11 },
+  D12: { thrust: 10.2, burn: 1.65, prop: 21 },
+  E12: { thrust: 11.6, burn: 2.40, prop: 36 },
+  F15: { thrust: 14.4, burn: 3.45, prop: 60 },
+};
+
+const DEFAULT_COMPONENTS = [
+  ["Nose cone",          30, 55, 10],
+  ["Body tube",          60, 30, 40],
+  ["Avionics + battery", 80, 38,  8],
+  ["Parachute",          20, 46,  5],
+  ["TVC mount + servos", 90,  8,  8],
+  ["Motor (loaded)",     60,  5,  7],
+];
+
+function $(id) { return document.getElementById(id); }
+function num(id) { const v = parseFloat($(id).value); return isNaN(v) ? 0 : v; }
+function log(msg, cls) {
+  const c = $("console");
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = msg + "\n";
+  c.appendChild(span);
+  c.scrollTop = c.scrollHeight;
+}
+
+// ---------- component table ----------
+function addComp(name = "", mass = 0, pos = 0, len = 0) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><input value="${name}" placeholder="name"></td>
+    <td><input type="number" value="${mass}" step="1"></td>
+    <td><input type="number" value="${pos}" step="0.5"></td>
+    <td><input type="number" value="${len}" step="0.5"></td>
+    <td><button class="del" onclick="this.closest('tr').remove()">&times;</button></td>`;
+  $("compTable").querySelector("tbody").appendChild(tr);
+}
+DEFAULT_COMPONENTS.forEach(c => addComp(...c));
+
+function toggleMassMode() {
+  const detailed = $("mass_mode").value === "detailed";
+  $("simpleMass").style.display = detailed ? "none" : "";
+  $("detailedMass").style.display = detailed ? "" : "none";
+}
+
+function applyMotor() {
+  const m = MOTORS[$("motorPreset").value];
+  if (!m) return;
+  $("thrust_n").value = m.thrust;
+  $("burn_s").value = m.burn;
+  $("prop_mass_g").value = m.prop;
+}
+
+// ---------- parameter gathering ----------
+function gather() {
+  const p = {};
+  ["total_mass_g","rocket_length_cm","cm_from_nozzle_cm","body_diameter_cm",
+   "thrust_n","burn_s","prop_mass_g","gimbal_limit_deg","gear_ratio",
+   "servo_speed_s_per_60deg","servo_latency_ms","kp","ki","kd","i_limit",
+   "dterm_lpf_hz","nozzle_rate_limit_dps","tvc_delay_ms","control_rate_hz",
+   "target_bw_hz","target_zeta","init_tilt_deg","init_rate_dps",
+   "misalign_deg","wind_ms","cp_from_nozzle_cm","cna","cd"]
+    .forEach(id => p[id] = num(id));
+  p.inertia_gcm2 = $("inertia_gcm2").value ? num("inertia_gcm2") : null;
+  p.mass_mode = $("mass_mode").value;
+  p.aero_enabled = $("aero_enabled").checked;
+  p.components = [...$("compTable").querySelectorAll("tbody tr")].map(tr => {
+    const cells = tr.querySelectorAll("input");
+    return { name: cells[0].value, mass_g: parseFloat(cells[1].value) || 0,
+             pos_cm: parseFloat(cells[2].value) || 0,
+             len_cm: parseFloat(cells[3].value) || 0 };
+  });
+  return p;
+}
+
+// ---------- charts ----------
+Chart.defaults.color = "#8b949e";
+Chart.defaults.borderColor = "#30363d";
+const mkOpts = (title, yLabel) => ({
+  responsive: true, maintainAspectRatio: false, animation: false,
+  plugins: { title: { display: true, text: title, color: "#e6edf3" },
+             legend: { labels: { boxWidth: 12 } } },
+  scales: { x: { title: { display: true, text: "time (s)" }, type: "linear" },
+            y: { title: { display: true, text: yLabel } } },
+  elements: { point: { radius: 0 } },
+});
+const chartTilt = new Chart($("chartTilt"), {
+  type: "line", data: { datasets: [] }, options: mkOpts("Attitude & nozzle", "degrees") });
+const chartTraj = new Chart($("chartTraj"), {
+  type: "line", data: { datasets: [] }, options: mkOpts("Trajectory (burn)", "meters") });
+
+function xy(t, arr) { return t.map((tt, i) => ({ x: tt, y: arr[i] })); }
+
+// ---------- actions ----------
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+async function runSim() {
+  try {
+    const res = await post("/api/simulate", gather());
+    const s = res.series;
+    chartTilt.data.datasets = [
+      { label: "tilt (deg)", data: xy(s.t, s.tilt), borderColor: "#ffa657", borderWidth: 2 },
+      { label: "nozzle (deg)", data: xy(s.t, s.gimbal), borderColor: "#58a6ff", borderWidth: 1.5 },
+      { label: "PID cmd (deg)", data: xy(s.t, s.cmd), borderColor: "#8b949e", borderWidth: 1, borderDash: [4,3] },
+    ];
+    chartTilt.update();
+    chartTraj.data.datasets = [
+      { label: "altitude (m)", data: xy(s.t, s.alt), borderColor: "#3fb950", borderWidth: 2 },
+      { label: "lateral drift (m)", data: xy(s.t, s.drift), borderColor: "#bc8cff", borderWidth: 2 },
+    ];
+    chartTraj.update();
+
+    const m = res.metrics, mp = res.mass_props;
+    if ($("mass_mode").value === "detailed")
+      $("massSummary").innerHTML =
+        `Computed: mass <b>${mp.mass_g} g</b>, CM <b>${mp.cm_cm} cm</b>, ` +
+        `inertia <b>${mp.inertia_kgm2} kg·m²</b>`;
+    const cells = [
+      ["Max tilt", m.max_tilt_deg + "°", m.max_tilt_deg > 15 ? "bad" : m.max_tilt_deg > 8 ? "warn" : "ok"],
+      ["Tilt @ burnout", m.tilt_at_burnout_deg + "°", Math.abs(m.tilt_at_burnout_deg) > 5 ? "warn" : "ok"],
+      ["Settles by", m.settle_s === null ? "never" : m.settle_s + " s", m.settle_s === null ? "bad" : "ok"],
+      ["Gimbal saturation", m.saturation_pct + "%", m.saturation_pct > 25 ? "bad" : m.saturation_pct > 8 ? "warn" : "ok"],
+      ["Thrust/weight", m.twr, m.twr < 1.2 ? "bad" : m.twr < 1.5 ? "warn" : "ok"],
+      ["Alt @ burnout", m.alt_burnout_m + " m", ""],
+      ["Drift @ burnout", m.drift_burnout_m + " m", Math.abs(m.drift_burnout_m) > 30 ? "warn" : ""],
+    ];
+    $("metrics").innerHTML = cells.map(([k, v, cls]) =>
+      `<div class="metric"><div class="v ${cls}">${v}</div><div class="k">${k}</div></div>`).join("");
+    if (m.twr < 1.2) log("WARNING: thrust/weight < 1.2 — this rocket can barely lift off.", "warn");
+    log(`Sim done: max tilt ${m.max_tilt_deg}°, saturation ${m.saturation_pct}%, ` +
+        `drift ${m.drift_burnout_m} m, alt ${m.alt_burnout_m} m`);
+  } catch (e) { log("Simulation error: " + e.message, "bad"); }
+}
+
+async function suggest() {
+  try {
+    const res = await post("/api/suggest", gather());
+    $("kp").value = res.kp; $("ki").value = res.ki; $("kd").value = res.kd;
+    $("suggestNote").textContent = res.note;
+    log(`Suggested gains -> Kp=${res.kp} Ki=${res.ki} Kd=${res.kd} (plant gain ${res.plant_gain} rad/s²/rad)`);
+    runSim();
+  } catch (e) { log("Suggest error: " + e.message, "bad"); }
+}
+
+async function applyConfig() {
+  try {
+    const res = await post("/api/apply", gather());
+    log("Wrote to " + res.path + ":");
+    res.changed.forEach(c => log("  " + c, "ok"));
+    log("Now use 'Compile & upload' to flash the board.");
+  } catch (e) { log("Apply error: " + e.message, "bad"); }
+}
+
+async function build(upload) {
+  log((upload ? "Compiling + uploading..." : "Compiling...") + " (this can take ~30 s)");
+  const body = { upload: upload, port: null };
+  const resp = await fetch("/api/upload", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const c = $("console");
+    c.appendChild(document.createTextNode(dec.decode(value)));
+    c.scrollTop = c.scrollHeight;
+  }
+}
+
+async function refreshPorts() {
+  try {
+    const r = await fetch("/api/ports");
+    const data = await r.json();
+    $("portSel").innerHTML = data.ports.length
+      ? data.ports.map(p => `<option value="${p.device}">${p.device} — ${p.desc}</option>`).join("")
+      : "<option value=''>(no ports found)</option>";
+    $("cliStatus").innerHTML = data.arduino_cli
+      ? '<span class="ok">arduino-cli found</span>'
+      : '<span class="bad">arduino-cli NOT found — install it for compile/upload</span>';
+  } catch (e) { log("Port scan error: " + e.message, "bad"); }
+}
+
+async function sendLive() {
+  const port = $("portSel").value;
+  if (!port) { log("Pick a serial port first.", "warn"); return; }
+  try {
+    const p = gather();
+    p.port = port;
+    p.persist = $("persistLive").checked;
+    const res = await post("/api/live", p);
+    log(res.transcript);
+    log("Gains sent live.", "ok");
+  } catch (e) { log("Live tune error: " + e.message, "bad"); }
+}
+
+refreshPorts();
+</script>
+</body>
+</html>
