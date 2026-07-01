@@ -222,3 +222,7 @@ python tools/plot_log.py --port /dev/cu.usbmodem*   # sends 'dump', captures, pl
 
 The plot shows tilt vs. TVC commands vs. acceleration vs. altitude with
 BOOST/DESCENT shaded — exactly what you need for post-flight PID tuning.
+
+
+
+Built with Claude Fable 5 Max Thinking
